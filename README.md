@@ -1,5 +1,8 @@
 # swiftui-advanced-toolbar-app
+
 An example implementation of `NSWindow` with advanced toolbar capabilities in a SwiftUI-based macOS application.
+
+<p align="center"><img src="./preview.png" width="100%"></p>
 
 ## Why?
 
@@ -23,7 +26,7 @@ struct WindowAccessor: NSViewRepresentable {
         }
         return view;
     }
-    
+
     func updateNSView(_ nsView: NSView, context: Context) { }
 }
 ```
