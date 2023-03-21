@@ -39,3 +39,10 @@ struct EmptyScene : Scene {
                      content: { EmptyView() },
                      label: {Label("", systemImage: "app")})}
 }
+
+
+
+
+
+
+
