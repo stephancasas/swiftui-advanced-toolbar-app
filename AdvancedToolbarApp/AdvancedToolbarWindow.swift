@@ -7,7 +7,8 @@
 import SwiftUI;
 import AppKit;
 
-class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWindow, NSToolbarDelegate {
+class AdvancedToolbarWindow<MainContent: View, ToolbarContent: View, TitleToolbarContent: View>: NSWindow, NSToolbarDelegate {
+    private let toolbarContent: () -> ToolbarContent;
     private let titleToolbarContent: () -> TitleToolbarContent;
     
     /// Create a new window styled with a unified titlebar and inset traffic signals.
@@ -19,15 +20,60 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
         withTitle: String,
         contentRect: NSRect = CGRect(x:0, y: 0, width: 620, height: 400),
         _ contentView: () -> MainContent
-    ) where TitleToolbarContent == EmptyView {
+    ) where TitleToolbarContent == EmptyView, ToolbarContent == EmptyView {
         self.init( withTitle: withTitle,
                    contentRect: contentRect,
+                   withToolbar: { EmptyView() },
                    withTitleToolbar: { EmptyView() },
                    contentView);
     }
     
-    /// Create a new window styled with a unified titlebar and inset traffic signals,
-    /// including title toolbar anchored before the window title in the titlebar.
+    /// Create a new window styled with a unified titlebar and inset traffic
+    /// signals, — including a main toolbar anchored after the window title
+    /// in the titlebar.
+    /// - Parameters:
+    ///   - withTitle: The window title.
+    ///   - contentRect: The window's main content size.
+    ///   - withToolbar: The window's toolbar content view.
+    ///   - contentView: The window's main content view.
+    convenience init(
+        withTitle: String,
+        contentRect: NSRect = CGRect(x:0, y: 0, width: 620, height: 400),
+        withToolbar: @escaping () -> ToolbarContent,
+        _ contentView: () -> MainContent
+    ) where TitleToolbarContent == EmptyView {
+        self.init(
+            withTitle: withTitle,
+            withToolbar: withToolbar,
+            withTitleToolbar: { EmptyView() },
+            contentView);
+    }
+    
+    /// Create a new window styled with a unified titlebar and inset traffic
+    /// signals, — including a title toolbar anchored before the window title
+    /// in the titlebar.
+    /// - Parameters:
+    ///   - withTitle: The window title.
+    ///   - contentRect: The window's main content size.
+    ///   - withTitleToolbar: The window's toolbar content view.
+    ///   - contentView: The window's main content view.
+    convenience init(
+        withTitle: String,
+        contentRect: NSRect = CGRect(x:0, y: 0, width: 620, height: 400),
+        withTitleToolbar: @escaping () -> TitleToolbarContent,
+        _ contentView: () -> MainContent
+    ) where ToolbarContent == EmptyView {
+        self.init(
+            withTitle: withTitle,
+            withToolbar: { EmptyView() },
+            withTitleToolbar: withTitleToolbar,
+            contentView);
+    }
+    
+    /// Create a new window styled with a unified titlebar and inset traffic
+    /// signals — including a title toolbar anchored before the window title
+    /// in the titlebar and a main toolbar anchored after the window title
+    /// in the titlebar.
     /// - Parameters:
     ///   - withTitle: The window title.
     ///   - contentRect: The window's main content size.
@@ -36,9 +82,11 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
     init(
         withTitle: String,
         contentRect: NSRect = CGRect(x:0, y: 0, width: 620, height: 400),
+        withToolbar: @escaping () -> ToolbarContent,
         withTitleToolbar: @escaping () -> TitleToolbarContent,
         _ contentView: () -> MainContent
     ) {
+        self.toolbarContent = withToolbar;
         self.titleToolbarContent = withTitleToolbar;
         
         super.init(
@@ -63,8 +111,8 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
         self.title = withTitle;
         self.titleVisibility = .visible;
         self.titlebarAppearsTransparent = true;
-        
-        //MARK: Install AccessoryView
+
+        //MARK: Install Toolbar AccessoryView Controllers
         
         /// This `NSWindow` style will draw four components in the titlebar:
         ///
@@ -76,20 +124,36 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
         /// We must defer installing `NSTitlebarAccessoryViewController` until
         /// these components mount during the next UI draw cycle.
         ///
-        DispatchQueue.main.async(execute: self.installTitleToolbar);
+        DispatchQueue.main.async{
+            /// First, install the title toolbar content, if any was given.
+            self.installToolbarAccessory(
+                position: .left,
+                toolbarContent: self.titleToolbarContent);
+            
+            /// Next, install the main toolbar content, if any was given.
+            self.installToolbarAccessory(
+                position: .right,
+                toolbarContent: self.toolbarContent);
+        }
     }
     
-    internal func installTitleToolbar() {
-        /// Skip for `EmptyView()` to avoid blank space with offsets
-        let titleToolbar = titleToolbarContent();
-        if type(of: titleToolbar) == EmptyView.self { return }
+    /// Install a toolbar or title toolbar accessory on the window.
+    /// - Parameters:
+    ///   - position: The position in the titlebar at which to install the toolbar accessory.
+    ///   - toolbarContent: The SwiftUI toolbar content to install.
+    internal func installToolbarAccessory<T: View>(
+        position: NSLayoutConstraint.Attribute,
+        toolbarContent: () -> T
+    ) {
+        let toolbarContentView = toolbarContent();
+        if type(of: toolbar) == EmptyView.self { return }
+
+        let accessoryView = NSHostingView(rootView: toolbarContentView);
         
-        let accessoryView = NSHostingView(rootView: titleToolbar);
-        
-        /// create the accessory to the *left* of the window's title
+        /// create the accessory at the given position -- relative to the window's title
         let accessory = NSTitlebarAccessoryViewController();
         accessory.view = accessoryView;
-        accessory.layoutAttribute = .left
+        accessory.layoutAttribute = position;
         
         self.addTitlebarAccessoryViewController(accessory);
         
@@ -99,7 +163,7 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
         guard let  titlebarView = accessoryClipView.superview else { return }
         /// `NSTitlebarContainerBlockingView`
         guard let titlebarBlock = titlebarView.superview?.subviews.last else { return }
-        
+
         /// `NSToolbarView`
         ///
         /// The toolbar may be at different positions depending on the window style.
@@ -110,7 +174,7 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
             guard let role = view.accessibilityRoleDescription() else { return false }
             return role == "toolbar"; // FIXME: This string may need localization.
         }) else { return }
-        
+
         /// `NSToolbarTitleView`
         ///
         /// We'll need this view so that we can re-assign its leading constraint to
@@ -120,26 +184,44 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
         /// Disable the auto-resizing mask constraints for **everything**.
         accessoryView.translatesAutoresizingMaskIntoConstraints     = false;
         accessoryClipView.translatesAutoresizingMaskIntoConstraints = false;
-        toolbarTitleView.translatesAutoresizingMaskIntoConstraints  = false;
+
+        /// This only applies when setting the **title** toolbar.
+        if position == .left {
+            toolbarTitleView.translatesAutoresizingMaskIntoConstraints  = false;
+        }
         
-        /// Our button inside of `NSTitlebarAccessoryViewController` should appear
-        /// *before* the window title, but *after* the sidebar with slight padding
-        /// on its leading edge.
+        /// When setting the main toolbar, our view inside of `NSTitlebarAccessoryViewController`
+        /// should appear after the window title and should hug the rightmost edge with a bit of
+        /// padding. For the title toolbar, it should appear *before* the window title, but
+        /// *after* the sidebar with slight padding on its leading edge.
         ///
-        /// It should also occupy the full height of the unified titlebar/toolbar
+        /// Both toolbars should also occupy the full height of the unified titlebar/toolbar
         /// area so that we can handle alignment in SwiftUI.
         ///
-        /// For both of these, we'll constrain the `NSClipView` of the accessory
-        /// on `NSTitlebarContainerBlockingView`. We'll leave the trailing edge
-        /// unconstrained so that it can grow with SwiftUI-provided content.
-        NSLayoutConstraint.activate([
+        /// For the vertical heights, we'll constrain the `NSClipView` of the accessory
+        /// on `NSTitlebarContainerBlockingView`.
+        ///
+        /// We'll leave the leading edge on the main toolbar and the trailing edge on the title
+        /// toolbar unconstrained so that they can both grow with SwiftUI-provided content.
+        var clipViewConstraints = [
+            /// When setting the main toolbar, it should hug the **right** edge.
+            /// When setting the title toolbar, it should hug the **left** edge.
+            position == .left ?
             accessoryClipView.leadingAnchor.constraint(
                 equalTo: titlebarBlock.leadingAnchor,
-                constant: 7),
+                constant: 10)
+            :accessoryClipView.trailingAnchor.constraint(
+                equalTo: toolbarView.trailingAnchor,
+                constant: -10),
             accessoryClipView.topAnchor.constraint(equalTo: titlebarBlock.topAnchor),
             accessoryClipView.bottomAnchor.constraint(equalTo: titlebarBlock.bottomAnchor),
-        ]);
-        
+        ];
+        if position == .right { clipViewConstraints.append(
+            accessoryClipView.leadingAnchor.constraint(
+                equalTo: toolbarTitleView.trailingAnchor,
+                constant: 10))}
+        NSLayoutConstraint.activate(clipViewConstraints);
+
         /// Now, we need to constrain our `NSHostingView` to the bounds of the
         /// `NSClipView` in which it is contained. This will allow it to occupy
         /// the exact same space, and will let us handle alignment in SwiftUI.
@@ -150,14 +232,17 @@ class AdvancedToolbarWindow<MainContent: View, TitleToolbarContent: View>: NSWin
             accessoryView.bottomAnchor.constraint(equalTo: accessoryClipView.bottomAnchor)
         ]);
         
-        /// Finally, we must offset the window title to the trailing edge of
-        /// our accessory -- such that it does not overlap.
+        /// Finally, when setting the title toolbar, we must offset the window title to the
+        /// trailing edge of our accessory -- such that it does not overlap.
         ///
         /// The `NSToolbarTitleView` already includes a leading edge inset, so
         /// we do not need to apply another constant here.
-        NSLayoutConstraint.activate([
-            toolbarTitleView.leadingAnchor.constraint(equalTo: accessoryView.trailingAnchor)
-        ]);
+        if position == .left {
+            NSLayoutConstraint.activate([
+                toolbarTitleView.leadingAnchor.constraint(
+                    equalTo: accessoryView.trailingAnchor,
+                    constant: 2
+                )])}
     }
     
     override var canBecomeKey: Bool {
